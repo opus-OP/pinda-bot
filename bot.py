@@ -1,29 +1,68 @@
+import subprocess
+import sys
+import os
+
+# ============================================
+#  АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ
+# ============================================
+def install_dependencies():
+    """Проверяет и устанавливает зависимости из requirements.txt"""
+    try:
+        import aiogram
+        import dotenv
+        import aiohttp
+        # Проверяем aiohttp_socks (может не быть)
+        try:
+            import aiohttp_socks
+        except ImportError:
+            print("🔄 Устанавливаю aiohttp-socks...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "aiohttp-socks"])
+    except ImportError as e:
+        print(f"🔄 Устанавливаю зависимости из requirements.txt...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+
+# Запускаем проверку зависимостей
+install_dependencies()
+
+# ============================================
+#  ТЕПЕРЬ ИМПОРТИРУЕМ ВСЁ ОСТАЛЬНОЕ
+# ============================================
 import asyncio
 import logging
-import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
 from dotenv import load_dotenv
 from aiohttp import ClientSession
-from aiohttp_socks import ProxyConnector  # для SOCKS5
+from aiohttp_socks import ProxyConnector
 
+# ============================================
+#  ЗАГРУЗКА НАСТРОЕК ИЗ .env
+# ============================================
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-SOURCE_CHANNEL_ID = int(os.getenv("SOURCE_CHANNEL"))
-DEST_CHAT_ID = int(os.getenv("DEST_CHAT"))
-PROXY_URL = os.getenv("PROXY_URL")  # например, socks5://127.0.0.1:1443
+SOURCE_CHANNEL_ID = int(os.getenv("SOURCE_CHANNEL")) if os.getenv("SOURCE_CHANNEL") else None
+DEST_CHAT_ID = int(os.getenv("DEST_CHAT")) if os.getenv("DEST_CHAT") else None
+PROXY_URL = os.getenv("PROXY_URL")
+
+# Проверка наличия обязательных переменных
+if not BOT_TOKEN or SOURCE_CHANNEL_ID is None or DEST_CHAT_ID is None:
+    print("❌ Ошибка: не заполнен .env файл!")
+    print("Создайте файл .env с содержимым:")
+    print("BOT_TOKEN=ваш_токен")
+    print("SOURCE_CHANNEL=-1004440681402")
+    print("DEST_CHAT=-1002203234805")
+    print("PROXY_URL=socks5://127.0.0.1:1443")
+    sys.exit(1)
 
 # ============================================
 #  НАСТРОЙКА ПРОКСИ
 # ============================================
 if PROXY_URL:
-    # Если прокси SOCKS5
     if PROXY_URL.startswith("socks"):
         connector = ProxyConnector.from_url(PROXY_URL)
     else:
-        # Если HTTP/HTTPS
         from aiohttp import TCPConnector
         connector = TCPConnector(proxy=PROXY_URL)
     session = ClientSession(connector=connector)
