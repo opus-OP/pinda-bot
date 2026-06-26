@@ -27,6 +27,7 @@ import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.client.session.aiohttp import AIOHTTPSession  # <--- новый импорт
 from dotenv import load_dotenv
 from aiohttp import ClientSession
 from aiohttp_socks import ProxyConnector
@@ -103,9 +104,26 @@ def is_copyable(message: types.Message) -> bool:
     return False
 
 # ============================================
-#  ОБРАБОТЧИКИ
+#  СОЗДАНИЕ БОТА С ПРОКСИ
 # ============================================
-def register_handlers(dp: Dispatcher):
+async def create_bot_and_dispatcher():
+    if PROXY_URL:
+        # Создаём aiohttp сессию с прокси
+        if PROXY_URL.startswith("socks"):
+            connector = ProxyConnector.from_url(PROXY_URL)
+        else:
+            from aiohttp import TCPConnector
+            connector = TCPConnector(proxy=PROXY_URL)
+        aiohttp_session = ClientSession(connector=connector)
+        # Оборачиваем в aiogram-сессию
+        aiogram_session = AIOHTTPSession(session=aiohttp_session)
+    else:
+        aiogram_session = None
+
+    bot = Bot(token=BOT_TOKEN, session=aiogram_session)
+    dp = Dispatcher()
+
+    # Регистрируем обработчики
     @dp.channel_post()
     async def forward_from_channel(message: types.Message):
         if message.chat.id != SOURCE_CHANNEL_ID:
@@ -145,27 +163,6 @@ def register_handlers(dp: Dispatcher):
             f"🔄 Статус: Активен",
             parse_mode="Markdown"
         )
-
-# ============================================
-#  СОЗДАНИЕ БОТА С ПРОКСИ ВНУТРИ КОРУТИНЫ
-# ============================================
-async def create_bot_and_dispatcher():
-    # Создаём сессию с прокси прямо здесь, в асинхронной функции
-    if PROXY_URL:
-        if PROXY_URL.startswith("socks"):
-            connector = ProxyConnector.from_url(PROXY_URL)
-        else:
-            from aiohttp import TCPConnector
-            connector = TCPConnector(proxy=PROXY_URL)
-        session = ClientSession(connector=connector)
-    else:
-        session = None
-
-    bot = Bot(token=BOT_TOKEN, session=session)
-    dp = Dispatcher()
-
-    # Регистрируем обработчики
-    register_handlers(dp)
 
     return bot, dp
 
