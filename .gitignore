@@ -1,0 +1,33 @@
+# Токены и секреты
+.env
+*.env
+token.txt
+config.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Логи и временные файлы
+*.log
+*.tmp
+bot.log
+nohup.out
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
