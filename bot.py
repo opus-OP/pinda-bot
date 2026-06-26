@@ -14,20 +14,20 @@ def install_dependencies():
             print("🔄 Устанавливаю aiohttp-socks...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "aiohttp-socks"])
     except ImportError:
-        print("🔄 Устанавливаю зависимости...")
+        print("🔄 Устанавливаю зависимости из requirements.txt...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
 install_dependencies()
 
 # ============================================
-#  ИМПОРТЫ (после автоустановки)
+#  ИМПОРТЫ
 # ============================================
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.client.session.aiohttp import AIOHTTPSession  # <--- новый импорт
+from aiogram.client.session.aiohttp import AiohttpSession  # <--- правильный импорт
 from dotenv import load_dotenv
 from aiohttp import ClientSession
 from aiohttp_socks import ProxyConnector
@@ -61,45 +61,14 @@ logger = logging.getLogger(__name__)
 #  ФУНКЦИЯ ПРОВЕРКИ КОПИРУЕМОСТИ
 # ============================================
 def is_copyable(message: types.Message) -> bool:
-    if message.text:
+    if message.text or message.photo or message.video or message.document or \
+       message.audio or message.voice or message.sticker or message.animation or \
+       message.contact or message.location or message.poll or message.game or \
+       message.video_note or message.invoice or message.successful_payment:
         return True
-    if message.photo:
-        return True
-    if message.video:
-        return True
-    if message.document:
-        return True
-    if message.audio:
-        return True
-    if message.voice:
-        return True
-    if message.sticker:
-        return True
-    if message.animation:
-        return True
-    if message.contact:
-        return True
-    if message.location:
-        return True
-    if message.poll:
-        return True
-    if message.game:
-        return True
-    if message.video_note:
-        return True
-    if message.invoice:
-        return True
-    if message.successful_payment:
-        return True
-    if message.new_chat_members:
-        return False
-    if message.left_chat_member:
-        return False
-    if message.pinned_message:
-        return False
-    if message.connected_website:
-        return False
-    if message.proximity_alert_triggered:
+    if message.new_chat_members or message.left_chat_member or \
+       message.pinned_message or message.connected_website or \
+       message.proximity_alert_triggered:
         return False
     return False
 
@@ -108,22 +77,22 @@ def is_copyable(message: types.Message) -> bool:
 # ============================================
 async def create_bot_and_dispatcher():
     if PROXY_URL:
-        # Создаём aiohttp сессию с прокси
         if PROXY_URL.startswith("socks"):
             connector = ProxyConnector.from_url(PROXY_URL)
         else:
             from aiohttp import TCPConnector
             connector = TCPConnector(proxy=PROXY_URL)
         aiohttp_session = ClientSession(connector=connector)
-        # Оборачиваем в aiogram-сессию
-        aiogram_session = AIOHTTPSession(session=aiohttp_session)
+        aiogram_session = AiohttpSession(session=aiohttp_session)  # <--- правильное имя класса
     else:
         aiogram_session = None
 
     bot = Bot(token=BOT_TOKEN, session=aiogram_session)
     dp = Dispatcher()
 
-    # Регистрируем обработчики
+    # ============================================
+    #  РЕГИСТРАЦИЯ ОБРАБОТЧИКОВ
+    # ============================================
     @dp.channel_post()
     async def forward_from_channel(message: types.Message):
         if message.chat.id != SOURCE_CHANNEL_ID:
