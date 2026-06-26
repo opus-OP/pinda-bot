@@ -6,26 +6,21 @@ import os
 #  АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ
 # ============================================
 def install_dependencies():
-    """Проверяет и устанавливает зависимости из requirements.txt"""
     try:
-        import aiogram
-        import dotenv
-        import aiohttp
-        # Проверяем aiohttp_socks (может не быть)
+        import aiogram, dotenv, aiohttp
         try:
             import aiohttp_socks
         except ImportError:
             print("🔄 Устанавливаю aiohttp-socks...")
             subprocess.check_call([sys.executable, "-m", "pip", "install", "aiohttp-socks"])
-    except ImportError as e:
-        print(f"🔄 Устанавливаю зависимости из requirements.txt...")
+    except ImportError:
+        print("🔄 Устанавливаю зависимости...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
 
-# Запускаем проверку зависимостей
 install_dependencies()
 
 # ============================================
-#  ТЕПЕРЬ ИМПОРТИРУЕМ ВСЁ ОСТАЛЬНОЕ
+#  ИМПОРТЫ (после автоустановки)
 # ============================================
 import asyncio
 import logging
@@ -37,7 +32,7 @@ from aiohttp import ClientSession
 from aiohttp_socks import ProxyConnector
 
 # ============================================
-#  ЗАГРУЗКА НАСТРОЕК ИЗ .env
+#  ЗАГРУЗКА .env
 # ============================================
 load_dotenv()
 
@@ -46,10 +41,9 @@ SOURCE_CHANNEL_ID = int(os.getenv("SOURCE_CHANNEL")) if os.getenv("SOURCE_CHANNE
 DEST_CHAT_ID = int(os.getenv("DEST_CHAT")) if os.getenv("DEST_CHAT") else None
 PROXY_URL = os.getenv("PROXY_URL")
 
-# Проверка наличия обязательных переменных
 if not BOT_TOKEN or SOURCE_CHANNEL_ID is None or DEST_CHAT_ID is None:
     print("❌ Ошибка: не заполнен .env файл!")
-    print("Создайте файл .env с содержимым:")
+    print("Создайте .env с содержимым:")
     print("BOT_TOKEN=ваш_токен")
     print("SOURCE_CHANNEL=-1004440681402")
     print("DEST_CHAT=-1002203234805")
@@ -57,29 +51,10 @@ if not BOT_TOKEN or SOURCE_CHANNEL_ID is None or DEST_CHAT_ID is None:
     sys.exit(1)
 
 # ============================================
-#  НАСТРОЙКА ПРОКСИ
-# ============================================
-if PROXY_URL:
-    if PROXY_URL.startswith("socks"):
-        connector = ProxyConnector.from_url(PROXY_URL)
-    else:
-        from aiohttp import TCPConnector
-        connector = TCPConnector(proxy=PROXY_URL)
-    session = ClientSession(connector=connector)
-else:
-    session = None
-
-# ============================================
-#  ЛОГИРОВАНИЕ
+#  ЛОГГЕР
 # ============================================
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
-
-# ============================================
-#  ИНИЦИАЛИЗАЦИЯ БОТА
-# ============================================
-bot = Bot(token=BOT_TOKEN, session=session)
-dp = Dispatcher()
 
 # ============================================
 #  ФУНКЦИЯ ПРОВЕРКИ КОПИРУЕМОСТИ
@@ -115,7 +90,6 @@ def is_copyable(message: types.Message) -> bool:
         return True
     if message.successful_payment:
         return True
-
     if message.new_chat_members:
         return False
     if message.left_chat_member:
@@ -129,57 +103,77 @@ def is_copyable(message: types.Message) -> bool:
     return False
 
 # ============================================
-#  ОБРАБОТЧИК КАНАЛА
+#  ОБРАБОТЧИКИ
 # ============================================
-@dp.channel_post()
-async def forward_from_channel(message: types.Message):
-    if message.chat.id != SOURCE_CHANNEL_ID:
-        return
+def register_handlers(dp: Dispatcher):
+    @dp.channel_post()
+    async def forward_from_channel(message: types.Message):
+        if message.chat.id != SOURCE_CHANNEL_ID:
+            return
+        if not is_copyable(message):
+            logger.info(f"Пропускаем служебное сообщение ID {message.message_id}")
+            return
+        try:
+            await message.copy_to(chat_id=DEST_CHAT_ID)
+            logger.info(f"✅ Переслано сообщение ID {message.message_id}")
+        except TelegramBadRequest as e:
+            logger.error(f"❌ Ошибка API: {e}")
+        except Exception as e:
+            logger.error(f"❌ Неизвестная ошибка: {e}")
 
-    if not is_copyable(message):
-        logger.info(f"Пропускаем служебное сообщение ID {message.message_id}")
-        return
+    @dp.message(Command("start"))
+    async def start_cmd(message: types.Message):
+        await message.answer(
+            "🤖 Бот успешно запущен!\n\n"
+            f"📡 Канал: `{SOURCE_CHANNEL_ID}`\n"
+            f"📤 Чат: `{DEST_CHAT_ID}`\n"
+            f"🔐 Прокси: `{PROXY_URL if PROXY_URL else 'Нет'}`",
+            parse_mode="Markdown"
+        )
 
-    try:
-        await message.copy_to(chat_id=DEST_CHAT_ID)
-        logger.info(f"✅ Переслано сообщение ID {message.message_id}")
-    except TelegramBadRequest as e:
-        logger.error(f"❌ Ошибка API: {e}")
-    except Exception as e:
-        logger.error(f"❌ Неизвестная ошибка: {e}")
+    @dp.message(Command("getid"))
+    async def get_id_cmd(message: types.Message):
+        await message.answer(f"📌 ID этого чата: `{message.chat.id}`", parse_mode="Markdown")
+
+    @dp.message(Command("stats"))
+    async def stats_cmd(message: types.Message):
+        await message.answer(
+            "📊 **Настройки:**\n\n"
+            f"📡 Источник: `{SOURCE_CHANNEL_ID}`\n"
+            f"📤 Приёмник: `{DEST_CHAT_ID}`\n"
+            f"🔐 Прокси: `{PROXY_URL or 'Отключён'}`\n"
+            f"🔄 Статус: Активен",
+            parse_mode="Markdown"
+        )
 
 # ============================================
-#  КОМАНДЫ
+#  СОЗДАНИЕ БОТА С ПРОКСИ ВНУТРИ КОРУТИНЫ
 # ============================================
-@dp.message(Command("start"))
-async def start_cmd(message: types.Message):
-    await message.answer(
-        "🤖 Бот успешно запущен!\n\n"
-        f"📡 Канал: `{SOURCE_CHANNEL_ID}`\n"
-        f"📤 Чат: `{DEST_CHAT_ID}`\n"
-        f"🔐 Прокси: `{PROXY_URL if PROXY_URL else 'Нет'}`",
-        parse_mode="Markdown"
-    )
+async def create_bot_and_dispatcher():
+    # Создаём сессию с прокси прямо здесь, в асинхронной функции
+    if PROXY_URL:
+        if PROXY_URL.startswith("socks"):
+            connector = ProxyConnector.from_url(PROXY_URL)
+        else:
+            from aiohttp import TCPConnector
+            connector = TCPConnector(proxy=PROXY_URL)
+        session = ClientSession(connector=connector)
+    else:
+        session = None
 
-@dp.message(Command("getid"))
-async def get_id_cmd(message: types.Message):
-    await message.answer(f"📌 ID этого чата: `{message.chat.id}`", parse_mode="Markdown")
+    bot = Bot(token=BOT_TOKEN, session=session)
+    dp = Dispatcher()
 
-@dp.message(Command("stats"))
-async def stats_cmd(message: types.Message):
-    await message.answer(
-        "📊 **Настройки:**\n\n"
-        f"📡 Источник: `{SOURCE_CHANNEL_ID}`\n"
-        f"📤 Приёмник: `{DEST_CHAT_ID}`\n"
-        f"🔐 Прокси: `{PROXY_URL or 'Отключён'}`\n"
-        f"🔄 Статус: Активен",
-        parse_mode="Markdown"
-    )
+    # Регистрируем обработчики
+    register_handlers(dp)
+
+    return bot, dp
 
 # ============================================
 #  ЗАПУСК
 # ============================================
 async def main():
+    bot, dp = await create_bot_and_dispatcher()
     logger.info("🚀 Бот запущен!")
     logger.info(f"📡 Источник: {SOURCE_CHANNEL_ID}")
     logger.info(f"📤 Приёмник: {DEST_CHAT_ID}")
