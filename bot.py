@@ -1,13 +1,15 @@
 import subprocess
 import sys
 import os
+import asyncio
+import logging
 
 # ============================================
 #  АВТОУСТАНОВКА ЗАВИСИМОСТЕЙ
 # ============================================
 def install_dependencies():
     try:
-        import aiogram, dotenv, aiohttp
+        import aiogram, dotenv
         try:
             import aiohttp_socks
         except ImportError:
@@ -22,15 +24,12 @@ install_dependencies()
 # ============================================
 #  ИМПОРТЫ
 # ============================================
-import asyncio
-import logging
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.client.session.aiohttp import AiohttpSession  # <--- правильный импорт
+from aiogram.client.session.aiohttp import AiohttpSession # <-- Правильный импорт для aiogram 3.x [reference:3]
 from dotenv import load_dotenv
-from aiohttp import ClientSession
-from aiohttp_socks import ProxyConnector
+from aiohttp import BasicAuth # <-- Для авторизации на прокси, если потребуется [reference:4]
 
 # ============================================
 #  ЗАГРУЗКА .env
@@ -61,11 +60,13 @@ logger = logging.getLogger(__name__)
 #  ФУНКЦИЯ ПРОВЕРКИ КОПИРУЕМОСТИ
 # ============================================
 def is_copyable(message: types.Message) -> bool:
+    # Список типов, которые можно копировать [reference:5]
     if message.text or message.photo or message.video or message.document or \
        message.audio or message.voice or message.sticker or message.animation or \
        message.contact or message.location or message.poll or message.game or \
        message.video_note or message.invoice or message.successful_payment:
         return True
+    # Служебные – пропускаем
     if message.new_chat_members or message.left_chat_member or \
        message.pinned_message or message.connected_website or \
        message.proximity_alert_triggered:
@@ -73,21 +74,24 @@ def is_copyable(message: types.Message) -> bool:
     return False
 
 # ============================================
-#  СОЗДАНИЕ БОТА С ПРОКСИ
+#  СОЗДАНИЕ БОТА С ПРОКСИ (ПРАВИЛЬНЫЙ СПОСОБ)
 # ============================================
-async def create_bot_and_dispatcher():
+def create_bot_and_dispatcher():
+    # Правильный способ настройки прокси в aiogram 3.x [reference:6]
     if PROXY_URL:
-        if PROXY_URL.startswith("socks"):
-            connector = ProxyConnector.from_url(PROXY_URL)
-        else:
-            from aiohttp import TCPConnector
-            connector = TCPConnector(proxy=PROXY_URL)
-        aiohttp_session = ClientSession(connector=connector)
-        aiogram_session = AiohttpSession(session=aiohttp_session)  # <--- правильное имя класса
+        # Если ваш прокси требует логин и пароль, раскомментируйте и укажите их
+        # proxy_auth = BasicAuth(login='логин', password='пароль')
+        # session = AiohttpSession(proxy=PROXY_URL, proxy_auth=proxy_auth)
+        
+        # Для прокси без авторизации
+        session = AiohttpSession(proxy=PROXY_URL)
+        logger.info(f"🔐 Настроен прокси: {PROXY_URL}")
     else:
-        aiogram_session = None
+        session = None
+        logger.info("🔐 Прокси не используется")
 
-    bot = Bot(token=BOT_TOKEN, session=aiogram_session)
+    # Создаем бота с нашей сессией
+    bot = Bot(token=BOT_TOKEN, session=session)
     dp = Dispatcher()
 
     # ============================================
@@ -101,6 +105,7 @@ async def create_bot_and_dispatcher():
             logger.info(f"Пропускаем служебное сообщение ID {message.message_id}")
             return
         try:
+            # Используем copy_to для копирования сообщения [reference:7]
             await message.copy_to(chat_id=DEST_CHAT_ID)
             logger.info(f"✅ Переслано сообщение ID {message.message_id}")
         except TelegramBadRequest as e:
@@ -139,11 +144,10 @@ async def create_bot_and_dispatcher():
 #  ЗАПУСК
 # ============================================
 async def main():
-    bot, dp = await create_bot_and_dispatcher()
+    bot, dp = create_bot_and_dispatcher()
     logger.info("🚀 Бот запущен!")
     logger.info(f"📡 Источник: {SOURCE_CHANNEL_ID}")
     logger.info(f"📤 Приёмник: {DEST_CHAT_ID}")
-    logger.info(f"🔐 Прокси: {PROXY_URL if PROXY_URL else 'Нет'}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
